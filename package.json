@@ -1,0 +1,22 @@
+{
+  "name": "estimate-generator",
+  "version": "1.0.0",
+  "description": "Mobile estimate generator with Claude Vision OCR",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "next": "^14.0.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "anthropic": "^0.20.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "@types/node": "^20.0.0",
+    "@types/react": "^18.2.0"
+  }
+}
