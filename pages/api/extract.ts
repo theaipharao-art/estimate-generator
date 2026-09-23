@@ -35,6 +35,43 @@ export default async function handler(
       return res.status(500).json({ error: 'API key not configured' })
     }
 
+    const requestBody = {
+      model: 'claude-3-5-sonnet-20241022',
+      max_tokens: 1024,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'image',
+              source: {
+                type: 'base64',
+                media_type: mimeType || 'image/jpeg',
+                data: imageBase64,
+              },
+            },
+            {
+              type: 'text',
+              text: `Extract job order information from this image and respond with ONLY this JSON format, no markdown:
+{
+  "jobNumber": "JOB-XXXXX or similar",
+  "location": "full address",
+  "serviceLine": "service type",
+  "urgency": "Normal|High|Emergency",
+  "scope": "work description",
+  "jobRequirements": ["requirement1", "requirement2"],
+  "techRate": 41,
+  "helperRate": 21,
+  "tripCharge": 30,
+  "nte": 0,
+  "dmgContact": "contact info"
+}`,
+            },
+          ],
+        },
+      ],
+    }
+
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -42,44 +79,7 @@ export default async function handler(
         'x-api-key': apiKey,
         'anthropic-version': '2023-06-01',
       },
-      body: JSON.stringify({
-        model: 'claude-3-5-sonnet-20241022',
-        max_tokens: 1024,
-        messages: [
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'image',
-                source: {
-                  type: 'base64',
-                  media_type: mimeType || 'image/jpeg',
-                  data: imageBase64,
-                },
-              },
-              {
-                type: 'text',
-                text: `Extract the following information from this work order image and return as JSON:
-{
-  "jobNumber": "job number/ID",
-  "location": "job location address",
-  "serviceLine": "service line or service type",
-  "urgency": "urgency level (Normal, High, Emergency)",
-  "scope": "scope of work description",
-  "jobRequirements": ["array", "of", "requirements"],
-  "techRate": number (technician hourly rate),
-  "helperRate": number (helper hourly rate),
-  "tripCharge": number (trip charge amount),
-  "nte": number (not-to-exceed amount if present),
-  "dmgContact": "contact name or email"
-}
-
-Return ONLY valid JSON, no markdown or extra text.`,
-              },
-            ],
-          },
-        ],
-      }),
+      body: JSON.stringify(requestBody),
     })
 
     if (!response.ok) {
