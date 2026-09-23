@@ -86,79 +86,20 @@ export default function Home() {
         setImages((prev) => [...prev, newImage])
 
         try {
-          // Call Claude API directly from frontend
-          const claudeResponse = await fetch('https://api.anthropic.com/v1/messages', {
+          // Call backend API which relays to Claude
+          const response = await fetch('/api/extract', {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'x-api-key': apiKey,
-              'anthropic-version': '2023-06-01',
-            },
-            body: JSON.stringify({
-              model: 'claude-3-5-sonnet-20241022',
-              max_tokens: 1024,
-              messages: [
-                {
-                  role: 'user',
-                  content: [
-                    {
-                      type: 'image',
-                      source: {
-                        type: 'base64',
-                        media_type: mimeType || 'image/jpeg',
-                        data: imageBase64,
-                      },
-                    },
-                    {
-                      type: 'text',
-                      text: `Extract job order information from this image and respond with ONLY this JSON format, no markdown:
-{
-  "jobNumber": "JOB-XXXXX or similar",
-  "location": "full address",
-  "serviceLine": "service type",
-  "urgency": "Normal|High|Emergency",
-  "scope": "work description",
-  "jobRequirements": ["requirement1", "requirement2"],
-  "techRate": 41,
-  "helperRate": 21,
-  "tripCharge": 30,
-  "nte": 0,
-  "dmgContact": "contact info"
-}`,
-                    },
-                  ],
-                },
-              ],
-            }),
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ imageBase64, mimeType, apiKey }),
           })
 
-          if (!claudeResponse.ok) {
-            throw new Error(`Claude API error: ${claudeResponse.statusText}`)
+          const data = await response.json()
+
+          if (!response.ok) {
+            throw new Error(data.error || 'Failed to extract data')
           }
 
-          const claudeData = await claudeResponse.json()
-          const message = claudeData.content[0]
-
-          if (!message || message.type !== 'text') {
-            throw new Error('Unexpected response from Claude')
-          }
-
-          // Parse JSON from response
-          let extractedData
-          try {
-            extractedData = JSON.parse(message.text)
-          } catch (e) {
-            const jsonMatch = message.text.match(/\{[\s\S]*\}/)
-            if (!jsonMatch) {
-              throw new Error('Failed to parse extracted data')
-            }
-            extractedData = JSON.parse(jsonMatch[0])
-          }
-
-          // Ensure numeric fields
-          extractedData.techRate = Number(extractedData.techRate) || 41
-          extractedData.helperRate = Number(extractedData.helperRate) || 21
-          extractedData.tripCharge = Number(extractedData.tripCharge) || 30
+          const extractedData = data
 
           setImages((prev) =>
             prev.map((img) =>

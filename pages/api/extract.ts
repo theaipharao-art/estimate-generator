@@ -24,15 +24,14 @@ export default async function handler(
   }
 
   try {
-    const { imageBase64, mimeType } = req.body
+    const { imageBase64, mimeType, apiKey } = req.body
 
     if (!imageBase64) {
       return res.status(400).json({ error: 'No image provided' })
     }
 
-    const apiKey = process.env.ANTHROPIC_API_KEY
     if (!apiKey) {
-      return res.status(500).json({ error: 'API key not configured' })
+      return res.status(400).json({ error: 'No API key provided' })
     }
 
     const requestBody = {
