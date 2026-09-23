@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import Head from 'next/head'
 
 interface Estimate {
@@ -34,8 +34,36 @@ export default function Home() {
   const [estimates, setEstimates] = useState<Estimate[]>([])
   const [currentTab, setCurrentTab] = useState<'upload' | 'form' | 'result'>('upload')
   const [editingEstimateId, setEditingEstimateId] = useState<string | null>(null)
+  const [apiKey, setApiKey] = useState<string>('')
+  const [showApiKeyModal, setShowApiKeyModal] = useState(false)
+  const [apiKeyInput, setApiKeyInput] = useState('')
+
+  useEffect(() => {
+    // Check if API key is already stored
+    const storedKey = typeof window !== 'undefined' ? localStorage.getItem('anthropic_api_key') : null
+    if (storedKey) {
+      setApiKey(storedKey)
+      setShowApiKeyModal(false)
+    } else {
+      setShowApiKeyModal(true)
+    }
+  }, [])
+
+  const handleSaveApiKey = () => {
+    if (apiKeyInput.trim()) {
+      localStorage.setItem('anthropic_api_key', apiKeyInput.trim())
+      setApiKey(apiKeyInput.trim())
+      setShowApiKeyModal(false)
+    }
+  }
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!apiKey) {
+      alert('Please set your Claude API key first')
+      setShowApiKeyModal(true)
+      return
+    }
+
     const files = e.currentTarget.files
     if (!files) return
 
@@ -58,31 +86,87 @@ export default function Home() {
         setImages((prev) => [...prev, newImage])
 
         try {
-          const response = await fetch('/api/extract', {
+          // Call Claude API directly from frontend
+          const claudeResponse = await fetch('https://api.anthropic.com/v1/messages', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ imageBase64, mimeType }),
+            headers: {
+              'Content-Type': 'application/json',
+              'x-api-key': apiKey,
+              'anthropic-version': '2023-06-01',
+            },
+            body: JSON.stringify({
+              model: 'claude-3-5-sonnet-20241022',
+              max_tokens: 1024,
+              messages: [
+                {
+                  role: 'user',
+                  content: [
+                    {
+                      type: 'image',
+                      source: {
+                        type: 'base64',
+                        media_type: mimeType || 'image/jpeg',
+                        data: imageBase64,
+                      },
+                    },
+                    {
+                      type: 'text',
+                      text: `Extract job order information from this image and respond with ONLY this JSON format, no markdown:
+{
+  "jobNumber": "JOB-XXXXX or similar",
+  "location": "full address",
+  "serviceLine": "service type",
+  "urgency": "Normal|High|Emergency",
+  "scope": "work description",
+  "jobRequirements": ["requirement1", "requirement2"],
+  "techRate": 41,
+  "helperRate": 21,
+  "tripCharge": 30,
+  "nte": 0,
+  "dmgContact": "contact info"
+}`,
+                    },
+                  ],
+                },
+              ],
+            }),
           })
 
-          const data = await response.json()
-
-          if (response.ok) {
-            setImages((prev) =>
-              prev.map((img) =>
-                img.id === newImage.id
-                  ? { ...img, extractedData: data, loading: false }
-                  : img
-              )
-            )
-          } else {
-            setImages((prev) =>
-              prev.map((img) =>
-                img.id === newImage.id
-                  ? { ...img, error: data.error || 'Failed to extract data', loading: false }
-                  : img
-              )
-            )
+          if (!claudeResponse.ok) {
+            throw new Error(`Claude API error: ${claudeResponse.statusText}`)
           }
+
+          const claudeData = await claudeResponse.json()
+          const message = claudeData.content[0]
+
+          if (!message || message.type !== 'text') {
+            throw new Error('Unexpected response from Claude')
+          }
+
+          // Parse JSON from response
+          let extractedData
+          try {
+            extractedData = JSON.parse(message.text)
+          } catch (e) {
+            const jsonMatch = message.text.match(/\{[\s\S]*\}/)
+            if (!jsonMatch) {
+              throw new Error('Failed to parse extracted data')
+            }
+            extractedData = JSON.parse(jsonMatch[0])
+          }
+
+          // Ensure numeric fields
+          extractedData.techRate = Number(extractedData.techRate) || 41
+          extractedData.helperRate = Number(extractedData.helperRate) || 21
+          extractedData.tripCharge = Number(extractedData.tripCharge) || 30
+
+          setImages((prev) =>
+            prev.map((img) =>
+              img.id === newImage.id
+                ? { ...img, extractedData, loading: false }
+                : img
+            )
+          )
         } catch (error) {
           setImages((prev) =>
             prev.map((img) =>
@@ -155,10 +239,46 @@ export default function Home() {
         <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
       </Head>
 
+      {showApiKeyModal && (
+        <div className="modal-overlay">
+          <div className="modal">
+            <h2>Setup: Claude API Key</h2>
+            <p>Enter your Claude API key (from console.anthropic.com) to get started.</p>
+            <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
+              This is stored only on your device. It's never sent to our servers.
+            </p>
+            <input
+              type="password"
+              value={apiKeyInput}
+              onChange={(e) => setApiKeyInput(e.target.value)}
+              placeholder="sk-ant-..."
+              className="api-key-input"
+            />
+            <button className="button button-primary" onClick={handleSaveApiKey}>
+              Save & Continue
+            </button>
+            <button className="button button-secondary" onClick={() => setApiKeyInput('')}>
+              Clear
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="container">
         <div className="header">
-          <h1>⚡ Estimate Generator</h1>
-          <p>Arabic Interface / English Output</p>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <h1>⚡ Estimate Generator</h1>
+              <p>Arabic Interface / English Output</p>
+            </div>
+            <button
+              className="settings-button"
+              onClick={() => setShowApiKeyModal(true)}
+              title="Change API Key"
+            >
+              ⚙️
+            </button>
+          </div>
         </div>
 
         <div className="tabs">
@@ -511,6 +631,75 @@ ${currentEstimate.materialDesc ? `MATERIAL DETAILS: ${currentEstimate.materialDe
       </div>
 
       <style jsx>{`
+        .modal-overlay {
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: rgba(0, 0, 0, 0.7);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 1000;
+        }
+
+        .modal {
+          background: var(--surface-1);
+          border: 0.5px solid var(--border);
+          border-radius: var(--radius);
+          padding: 2rem;
+          max-width: 90%;
+          width: 100%;
+          max-height: 90vh;
+          overflow-y: auto;
+        }
+
+        .modal h2 {
+          font-size: 18px;
+          font-weight: 500;
+          color: var(--text-primary);
+          margin: 0 0 1rem;
+        }
+
+        .modal p {
+          font-size: 13px;
+          color: var(--text-secondary);
+          margin: 0 0 1rem;
+        }
+
+        .api-key-input {
+          width: 100%;
+          padding: 12px;
+          border: 0.5px solid var(--border);
+          border-radius: var(--radius);
+          font-size: 14px;
+          font-family: monospace;
+          color: var(--text-primary);
+          background: var(--surface-2);
+          margin-bottom: 1rem;
+        }
+
+        .api-key-input:focus {
+          outline: none;
+          border-color: var(--text-accent);
+          box-shadow: 0 0 0 2px var(--bg-accent);
+        }
+
+        .settings-button {
+          background: none;
+          border: none;
+          font-size: 20px;
+          cursor: pointer;
+          padding: 8px;
+          opacity: 0.7;
+          transition: opacity 0.2s;
+        }
+
+        .settings-button:hover {
+          opacity: 1;
+        }
+
         .container {
           max-width: 420px;
           margin: 0 auto;
@@ -524,7 +713,6 @@ ${currentEstimate.materialDesc ? `MATERIAL DETAILS: ${currentEstimate.materialDe
           background: var(--surface-1);
           border-bottom: 0.5px solid var(--border);
           padding: 1rem;
-          text-align: center;
         }
 
         .header h1 {
